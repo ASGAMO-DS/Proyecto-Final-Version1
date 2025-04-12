@@ -16,3 +16,5 @@ xgboost
 nltk
 regex
 spacy
+tqdm
+wordcloud
