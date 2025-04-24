@@ -13,6 +13,9 @@ import tqdm
 from tqdm import tqdm as tqdm_streamlit
 import pickle
 from pickle import load
+from sklearn.feature_extraction.text import TfidfVectorizer
+from nltk.corpus import stopwords
+import nltk
 
 
 # Cargar las variables de entorno AL INICIO del script
@@ -22,6 +25,26 @@ IdentificadorApp = os.getenv('IdentificadorApp')
 ClaveSecretaApp = os.getenv('ClaveSecretaApp')
 TokenAcceso = os.getenv('TokenAcceso')
 
+# Descargar stopwords (solo se ejecuta una vez)
+try:
+    stopwords.words('spanish')
+except LookupError:
+    nltk.download('stopwords')
+
+    
+# Convertir stopwords a LISTA
+stop_words_es = list(stopwords.words('spanish'))
+
+
+# Inicializar el TfidfVectorizer con la MISMA configuración que usaste al entrenar tu modelo
+tfidf = TfidfVectorizer(
+    max_features=15_000,
+    ngram_range=(1, 3),
+    stop_words=stop_words_es,
+    sublinear_tf=True
+)
+
+
 # Cargar el modelo de spaCy en español
 try:
     nlp = spacy.load("es_core_news_sm")
@@ -30,8 +53,14 @@ except OSError:
     st.stop()
 
 # Cargar el modelo de análisis de sentimiento
-
-# modelo = load(open("../models/SVMsvm_classifier_linear_probabilityTrue_42.sav", "rb"))
+try:
+    modelo = load(open("models/svm_classifier_linear_probabilityTrue_42.sav", "rb"))
+except FileNotFoundError:
+    st.error("Error: No se encontró el archivo del modelo de sentimiento en 'models/svm_classifier_linear_probabilityTrue_42.sav'. Asegúrate de que la ruta sea correcta.")
+    st.stop()
+except Exception as e:
+    st.error(f"Error al cargar el modelo de sentimiento: {e}")
+    st.stop()
 
 # Widget de Streamlit para obtener el ID de la publicación
 post_id = st.text_input("Por favor ingresa el ID (122098322012852515) de la publicación de Facebook:")
@@ -123,7 +152,7 @@ if post_id and TokenAcceso:
 
                 status_text.empty()
 
-                # Botón para realizar análisis de sentimiento y mostrar nube de palabras
+                # Botón para realizar análisis de sentimiento y ver nube de palabras
                 if st.button("✨ Realizar análisis de sentimiento y ver nube de palabras ✨"):
                     st.info("Procesando texto para análisis y generando nube de palabras...")
 
@@ -136,19 +165,27 @@ if post_id and TokenAcceso:
                     # Lematización con barra de progreso de Streamlit
                     num_comentarios = len(df_comentarios)
                     progress_bar = st.progress(0)
-                    all_lemas = []
+                    all_lemas_corpus = [] # Lista para almacenar todos los lemas para ajustar el vectorizador
+                    lemas_por_comentario = [] # Lista para almacenar los lemas de cada comentario
                     for i, row in df_comentarios.iterrows():
                         processed_words = row['Comentario_preprocesado']
                         lemas = lematizar_texto_es(processed_words)
-                        all_lemas.extend(lemas) # Extender la lista con los lemas de cada comentario
+                        all_lemas_corpus.extend(lemas) # Extender la lista para el corpus
+                        lemas_por_comentario.append(lemas) # Añadir los lemas del comentario actual
                         progress = (i + 1) / num_comentarios
                         progress_bar.progress(progress)
 
+                    df_comentarios['Comentario_lematizado'] = lemas_por_comentario # Crear la columna
+
                     st.success("¡Texto preprocesado y lematizado!")
 
+                    # Ajustar el vectorizador TF-IDF con el corpus de lemas
+                    corpus_para_tfidf = [" ".join(lemas) for lemas in df_comentarios['Comentario_lematizado']]
+                    tfidf.fit(corpus_para_tfidf)
+
                     # Generar nube de palabras
-                    if all_lemas:
-                        word_counts = Counter(all_lemas)
+                    if all_lemas_corpus:
+                        word_counts = Counter(all_lemas_corpus)
                         wordcloud = WordCloud(width=800, height=400, background_color='white').generate_from_frequencies(word_counts)
                         fig, ax = plt.subplots()
                         ax.imshow(wordcloud, interpolation='bilinear')
@@ -161,15 +198,37 @@ if post_id and TokenAcceso:
                     # Predicción de sentimiento
                     st.subheader("Predicciones de Sentimiento de los Comentarios")
                     sentimientos = []
+                    probabilidades = []
                     for lemas in df_comentarios['Comentario_lematizado']:
                         if lemas:
-                            sentimiento = modelo_sentimiento.predict([" ".join(lemas)])[0] # Asumo que tu modelo toma una cadena de texto
-                            sentimientos.append(sentimiento)
-                        else:
-                            sentimientos.append("neutral") # O alguna otra etiqueta para comentarios vacíos
+                            # Unir los lemas en una cadena
+                            texto_para_predecir = " ".join(lemas)
+                            # Vectorizar el texto usando el vectorizador TF-IDF YA AJUSTADO
+                            vector_tfidf = tfidf.transform([texto_para_predecir])
+                            # Realizar la predicción de probabilidad
+                            proba = modelo.predict_proba(vector_tfidf)[0]
+                            # Asumimos que la primera probabilidad es para la clase negativa y la segunda para positiva
+                            prob_negativa = proba[0]
+                            prob_positiva = proba[1]
 
-                    df_sentimientos = pd.DataFrame({'Comentario': df_comentarios['Comentario'], 'Sentimiento': sentimientos})
-                    st.dataframe(df_sentimientos)
+                            # Determinar el sentimiento basado en la probabilidad
+                            if prob_positiva > prob_negativa:
+                                sentimiento = "positivo"
+                                probabilidad = f"{prob_positiva:.2%}"
+                            else:
+                                sentimiento = "negativo"
+                                probabilidad = f"{prob_negativa:.2%}"
+
+                            sentimientos.append(sentimiento)
+                            probabilidades.append(probabilidad)
+                        else:
+                            sentimientos.append("neutral")  # O podrías indicar "sin texto"
+                            probabilidades.append("N/A")
+
+                    df_comentarios['Sentimiento'] = sentimientos
+                    df_comentarios['Probabilidad'] = probabilidades
+                    st.subheader("Comentarios con Predicción de Sentimiento")
+                    st.dataframe(df_comentarios)
 
             else:
                 st.warning(f"No se encontraron comentarios para la publicación con ID: {post_id}")
@@ -177,10 +236,10 @@ if post_id and TokenAcceso:
 
         else:
             st.warning(f"No se encontraron comentarios para la publicación con ID: {post_id}")
-            status_text.empty()
+            st.empty()
 
     except requests.exceptions.RequestException as e:
         st.error(f"Ocurrió un error al consultar la API de Facebook: {e}")
-        status_text.empty()
+        st.empty()
 elif not TokenAcceso:
     st.error("Error: TokenAcceso no está configurada en tu archivo .env")
