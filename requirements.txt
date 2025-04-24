@@ -20,4 +20,3 @@ tqdm
 wordcloud
 dotenv
 facebook-sdk
-request
