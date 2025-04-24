@@ -6,8 +6,13 @@ import pandas as pd
 import streamlit as st
 import regex as re
 import spacy
+from collections import Counter
+import matplotlib.pyplot as plt
+from wordcloud import WordCloud
 import tqdm
 from tqdm import tqdm as tqdm_streamlit
+import pickle
+from pickle import load
 
 
 # Cargar las variables de entorno AL INICIO del script
@@ -24,8 +29,12 @@ except OSError:
     st.error("Error: No se pudo cargar el modelo de spaCy en español. Asegúrate de haberlo descargado con: python -m spacy download es_core_news_sm")
     st.stop()
 
+# Cargar el modelo de análisis de sentimiento
+
+# modelo = load(open("../models/SVMsvm_classifier_linear_probabilityTrue_42.sav", "rb"))
+
 # Widget de Streamlit para obtener el ID de la publicación
-post_id = st.text_input("Por favor ingresa el ID de la publicación de Facebook:")
+post_id = st.text_input("Por favor ingresa el ID (122098322012852515) de la publicación de Facebook:")
 
 # Diccionario de reemplazos (caracter mal codificado → caracter correcto)
 reemplazos = {
@@ -114,9 +123,9 @@ if post_id and TokenAcceso:
 
                 status_text.empty()
 
-                # Botón para realizar análisis de sentimiento y procesamiento del texto
-                if st.button("✨ Realizar análisis de sentimiento ✨"):
-                    st.info("Procesando texto para análisis de sentimiento...")
+                # Botón para realizar análisis de sentimiento y mostrar nube de palabras
+                if st.button("✨ Realizar análisis de sentimiento y ver nube de palabras ✨"):
+                    st.info("Procesando texto para análisis y generando nube de palabras...")
 
                     # Convertir la columna de comentarios a minúsculas
                     df_comentarios['Comentario'] = df_comentarios['Comentario'].str.lower()
@@ -127,17 +136,41 @@ if post_id and TokenAcceso:
                     # Lematización con barra de progreso de Streamlit
                     num_comentarios = len(df_comentarios)
                     progress_bar = st.progress(0)
-                    lematized_comments = []
+                    all_lemas = []
                     for i, row in df_comentarios.iterrows():
                         processed_words = row['Comentario_preprocesado']
                         lemas = lematizar_texto_es(processed_words)
-                        lematized_comments.append(lemas)
+                        all_lemas.extend(lemas) # Extender la lista con los lemas de cada comentario
                         progress = (i + 1) / num_comentarios
                         progress_bar.progress(progress)
 
-                    df_comentarios['Comentario_lematizado'] = lematized_comments
-                    st.success("¡Texto de los comentarios preprocesado y lematizado!")
-                    # Por ahora, no mostramos el resultado de la lematización
+                    st.success("¡Texto preprocesado y lematizado!")
+
+                    # Generar nube de palabras
+                    if all_lemas:
+                        word_counts = Counter(all_lemas)
+                        wordcloud = WordCloud(width=800, height=400, background_color='white').generate_from_frequencies(word_counts)
+                        fig, ax = plt.subplots()
+                        ax.imshow(wordcloud, interpolation='bilinear')
+                        ax.axis("off")
+                        st.subheader("Nube de Palabras de los Comentarios")
+                        st.pyplot(fig)
+                    else:
+                        st.warning("No hay suficientes palabras para generar la nube de palabras.")
+                    
+                    # Predicción de sentimiento
+                    st.subheader("Predicciones de Sentimiento de los Comentarios")
+                    sentimientos = []
+                    for lemas in df_comentarios['Comentario_lematizado']:
+                        if lemas:
+                            sentimiento = modelo_sentimiento.predict([" ".join(lemas)])[0] # Asumo que tu modelo toma una cadena de texto
+                            sentimientos.append(sentimiento)
+                        else:
+                            sentimientos.append("neutral") # O alguna otra etiqueta para comentarios vacíos
+
+                    df_sentimientos = pd.DataFrame({'Comentario': df_comentarios['Comentario'], 'Sentimiento': sentimientos})
+                    st.dataframe(df_sentimientos)
+
             else:
                 st.warning(f"No se encontraron comentarios para la publicación con ID: {post_id}")
                 status_text.empty()
