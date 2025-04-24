@@ -16,7 +16,7 @@ from pickle import load
 from sklearn.feature_extraction.text import TfidfVectorizer
 from nltk.corpus import stopwords
 import nltk
-import plotly.express as px # Importar Plotly para gráficos interactivos
+import plotly.express as px  # Importar plotly express
 
 
 # Cargar las variables de entorno AL INICIO del script
@@ -86,13 +86,13 @@ reemplazos = {
 }
 
 def preprocess_text(text):
-    
+
     for caracter_mal, caracter_bien in reemplazos.items():
         text = text.replace(caracter_mal, caracter_bien)
 
 
     # Permitir letras (incluyendo acentuadas y ñ), espacios y algunos símbolos básicos
-    text = re.sub(r'[^\wÚÜÑ ]', " ", text, flags=re.UNICODE)
+    text = re.sub(r'[^\wáéíóúüñÁÉÍÓÚÜÑ ]', " ", text, flags=re.UNICODE)
 
     # Eliminar palabras de una sola letra rodeadas por espacios
     text = re.sub(r'\s+[a-zA-ZáéíóúüñÁÉÍÓÚÜÑ]\s+', " ", text)
@@ -172,11 +172,7 @@ if post_id and TokenAcceso:
         for caracter_mal, caracter_bien in reemplazos.items():
             df_comentarios['Comentario'] = df_comentarios['Comentario'].str.replace(caracter_mal, caracter_bien, regex=False)
 
-        tab1, tab2 = st.tabs(["Comentarios", "Análisis de Sentimiento"])
-
-        sentimientos = []  # Inicializar fuera del bloque if
-        probabilidades = []  # Inicializar fuera del bloque if
-        all_lemas_corpus = [] # Inicializar fuera del bloque if
+        tab1, tab2, tab3 = st.tabs(["Comentarios", "Análisis de Sentimiento", "Visualización de Métricas"])
 
         with tab1:
             st.subheader(f"Comentarios de la publicación con ID: {post_id}")
@@ -185,25 +181,31 @@ if post_id and TokenAcceso:
 
         with tab2:
             st.subheader("Análisis de Sentimiento y Nube de Palabras")
-            col1, col2 = st.columns([2, 1])
+            col1, col2 = st.columns([2, 1]) # Dividir el espacio en dos columnas para los botones
+
             with col1:
                 analizar_sentimiento = st.button("✨ Realizar análisis de sentimiento y ver nube de palabras ✨")
             with col2:
                 recargar_comentarios = st.button("🔄 Recargar comentarios")
-                if recargar_comentarios:
-                    with st.spinner("Recargando comentarios..."):
-                        all_comments = obtener_comentarios(post_id, TokenAcceso)
-                        if all_comments:
-                            df_comentarios.Comentario = all_comments
-                            st.rerun()
-                        else:
-                            st.warning("No se pudieron recargar los comentarios.")
+
+            if recargar_comentarios:
+                with st.spinner("Recargando comentarios..."):
+                    all_comments = obtener_comentarios(post_id, TokenAcceso)
+                    if all_comments:
+                        df_comentarios.Comentario = all_comments # Actualizar el DataFrame existente
+                        st.rerun() # Volver a ejecutar el script para reflejar los nuevos comentarios
+                    else:
+                        st.warning("No se pudieron recargar los comentarios.")
 
             if analizar_sentimiento:
                 with st.spinner("Procesando texto para análisis..."):
+                    # Convertir la columna de comentarios a minúsculas
                     df_comentarios['Comentario'] = df_comentarios['Comentario'].str.lower()
+
+                    # Aplicar la función de preprocesamiento a cada comentario
                     df_comentarios['Comentario_preprocesado'] = df_comentarios['Comentario'].apply(preprocess_text)
 
+                    # Lematización
                     num_comentarios = len(df_comentarios)
                     all_lemas_corpus = []
                     lemas_por_comentario = []
@@ -215,6 +217,8 @@ if post_id and TokenAcceso:
 
                     df_comentarios['Comentario_lematizado'] = lemas_por_comentario
 
+                    # Predicción de sentimiento
+                    st.subheader("Resultados del Análisis de Sentimiento")
                     sentimientos = []
                     probabilidades = []
                     for lemas in df_comentarios['Comentario_lematizado']:
@@ -241,81 +245,63 @@ if post_id and TokenAcceso:
                     df_comentarios['Sentimiento'] = sentimientos
                     df_comentarios['Probabilidad'] = probabilidades
 
-                    # Crear el tercer tab DESPUÉS de calcular las métricas
-                    tab1, tab2, tab3 = st.tabs(["Comentarios", "Análisis de Sentimiento", "Métricas de Sentimiento"])
+                    st.dataframe(df_comentarios[['Comentario', 'Sentimiento', 'Probabilidad']])
 
-                    with tab1:
-                        st.subheader(f"Comentarios de la publicación con ID: {post_id}")
-                        st.dataframe(df_comentarios)
-                        st.write(f"Se han capturado **{len(all_comments)}** comentarios de la publicación.")
+                    # Generar nube de palabras
+                    st.subheader("Nube de Palabras de los Comentarios")
+                    if all_lemas_corpus:
+                        word_counts = Counter(all_lemas_corpus)
+                        wordcloud = WordCloud(width=800, height=400, background_color='white').generate_from_frequencies(word_counts)
+                        fig, ax = plt.subplots()
+                        ax.imshow(wordcloud, interpolation='bilinear')
+                        ax.axis("off")
+                        st.pyplot(fig)
+                    else:
+                        st.warning("No hay suficientes palabras para generar la nube de palabras.")
 
-                    with tab2:
-                        st.subheader("Análisis de Sentimiento y Nube de Palabras")
-                        col1, col2 = st.columns([2, 1])
-                        with col1:
-                            st.button("✨ Realizar análisis de sentimiento y ver nube de palabras ✨", disabled=True)
-                        with col2:
-                            recargar_comentarios = st.button("🔄 Recargar comentarios")
-                            if recargar_comentarios:
-                                with st.spinner("Recargando comentarios..."):
-                                    all_comments = obtener_comentarios(post_id, TokenAcceso)
-                                    if all_comments:
-                                        df_comentarios.Comentario = all_comments
-                                        st.rerun()
-                                    else:
-                                        st.warning("No se pudieron recargar los comentarios.")
+        with tab3:
+            st.subheader("Visualización de Métricas")
+            if 'Sentimiento' in df_comentarios:
+                # Gráfico de pastel de sentimientos (sin cambios)
+                sentiment_counts = df_comentarios['Sentimiento'].value_counts().reset_index()
+                sentiment_counts.columns = ['Sentimiento', 'Cantidad']
 
-                        st.subheader("Resultados del Análisis de Sentimiento")
-                        st.dataframe(df_comentarios[['Comentario', 'Sentimiento', 'Probabilidad']])
-                        st.subheader("Nube de Palabras de los Comentarios")
-                        if all_lemas_corpus:
-                            word_counts = Counter(all_lemas_corpus)
-                            wordcloud = WordCloud(width=800, height=400, background_color='white').generate_from_frequencies(word_counts)
-                            fig, ax = plt.subplots()
-                            ax.imshow(wordcloud, interpolation='bilinear')
-                            ax.axis("off")
-                            st.pyplot(fig)
-                        else:
-                            st.warning("No hay suficientes palabras para generar la nube de palabras.")
+                fig_pie = px.pie(sentiment_counts,
+                                 values='Cantidad',
+                                 names='Sentimiento',
+                                 title='Distribución de Sentimientos',
+                                 color='Sentimiento',
+                                 color_discrete_map={'positivo': 'green',
+                                                     'negativo': 'red',
+                                                     'neutral': 'blue'},
+                                 hover_data=['Cantidad'])
 
-                    with tab3:
-                        st.subheader("Métricas del Análisis de Sentimiento")
-                        total_comentarios = len(df_comentarios)
-                        positivos = df_comentarios['Sentimiento'].value_counts().get('positivo', 0)
-                        negativos = df_comentarios['Sentimiento'].value_counts().get('negativo', 0)
-                        neutrales = df_comentarios['Sentimiento'].value_counts().get('neutral', 0)
+                fig_pie.update_traces(textinfo='percent+label', texttemplate='%{percent:.1%} (%{value})')
+                st.plotly_chart(fig_pie)
 
-                        porcentaje_positivos = (positivos / total_comentarios) * 100 if total_comentarios > 0 else 0
-                        porcentaje_negativos = (negativos / total_comentarios) * 100 if total_comentarios > 0 else 0
-                        porcentaje_neutrales = (neutrales / total_comentarios) * 100 if total_comentarios > 0 else 0
+                # Gráfico de barras de palabras más frecuentes (MODIFICADO)
+                st.subheader("Palabras Más Frecuentes")
+                if all_lemas_corpus:
+                    word_counts = Counter(all_lemas_corpus)
+                    most_common_words = pd.DataFrame(word_counts.most_common(20), columns=['Palabra', 'Frecuencia'])
 
-                        st.write(f"**Total de comentarios analizados:** {total_comentarios}")
-                        st.write(f"**Comentarios Positivos:** {positivos} ({porcentaje_positivos:.2f}%)")
-                        st.write(f"**Comentarios Negativos:** {negativos} ({porcentaje_negativos:.2f}%)")
-                        st.write(f"**Comentarios Neutrales:** {neutrales} ({porcentaje_neutrales:.2f}%)")
+                    fig_bar = px.bar(most_common_words,
+                                     x='Frecuencia',
+                                     y='Palabra',
+                                     orientation='h',
+                                     title='Top 20 Palabras Más Frecuentes',
+                                     labels={'Frecuencia': 'Frecuencia', 'Palabra': 'Palabra'},
+                                     height=600)  # Aumentar la altura del gráfico
 
-                        sentiment_counts = df_comentarios['Sentimiento'].value_counts().reset_index()
-                        sentiment_counts.columns = ['Sentimiento', 'Cantidad']
-                        fig_bar = px.bar(sentiment_counts, x='Sentimiento', y='Cantidad',
-                                         title='Distribución de Sentimientos')
-                        st.plotly_chart(fig_bar)
+                    fig_bar.update_traces(texttemplate='%{x}', textposition='outside') # Mostrar la frecuencia al final de la barra
 
-                        fig_pie = px.pie(sentiment_counts, names='Sentimiento', values='Cantidad',
-                                         title='Porcentaje de Sentimientos')
-                        st.plotly_chart(fig_pie)
+                    st.plotly_chart(fig_bar)
+                else:
+                    st.info("No hay suficientes palabras lematizadas para mostrar las más frecuentes.")
 
-                        st.subheader("Sugerencias e Insights")
-                        if porcentaje_positivos > porcentaje_negativos:
-                            st.info("La mayoría de los comentarios expresan un sentimiento positivo hacia la publicación.")
-                        elif porcentaje_negativos > porcentaje_positivos:
-                            st.warning("La mayoría de los comentarios expresan un sentimiento negativo hacia la publicación. Podría ser útil investigar las razones detrás de este sentimiento.")
-                        else:
-                            st.info("La distribución de sentimientos es bastante equilibrada.")
-
-                        st.write("Puedes explorar más a fondo los comentarios negativos para identificar temas recurrentes de insatisfacción o crítica.")
-                        st.write("Considera analizar la evolución del sentimiento a lo largo del tiempo si tienes datos de cuándo se publicaron los comentarios.")
-                        st.write("Si la publicación está relacionada con un producto o servicio, clasificar los comentarios negativos por categorías (ej., calidad, precio, atención al cliente) podría proporcionar insights accionables.")
-
+            else:
+                st.info("El análisis de sentimiento aún no se ha realizado.")
+                
     else:
         st.warning(f"No se encontraron comentarios para la publicación con ID: {post_id}")
 
