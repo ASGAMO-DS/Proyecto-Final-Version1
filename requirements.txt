@@ -21,3 +21,4 @@ wordcloud
 dotenv
 facebook-sdk
 streamlit
+plotly
