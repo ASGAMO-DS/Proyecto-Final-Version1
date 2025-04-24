@@ -20,3 +20,4 @@ tqdm
 wordcloud
 dotenv
 facebook-sdk
+streamlit
