@@ -341,74 +341,79 @@ if post_id and TokenAcceso:
                             st.info("Selecciona al menos un filtro para aplicar.")
 
 
-
-
-
-
-
-             
-
-                                 
-     
-                        
-
-
-
-
-
-
-
-
-
-
-
-
-
         with tab3:
-            st.subheader("Visualización de Métricas")
-            if 'Sentimiento' in df_comentarios:
-                # Gráfico de pastel de sentimientos (sin cambios)
-                sentiment_counts = df_comentarios['Sentimiento'].value_counts().reset_index()
-                sentiment_counts.columns = ['Sentimiento', 'Cantidad']
+            st.subheader("📊 Visualización de Métricas")
 
-                fig_pie = px.pie(sentiment_counts,
-                                 values='Cantidad',
-                                 names='Sentimiento',
-                                 title='Distribución de Sentimientos',
-                                 color='Sentimiento',
-                                 color_discrete_map={'positivo': 'green',
-                                                     'negativo': 'red',
-                                                     'neutral': 'blue'},
-                                 hover_data=['Cantidad'])
+            # 📈 Histograma de Probabilidades
+            with st.expander("📈 Histograma de Niveles de Probabilidad"):
+               import seaborn as sns
+               fig3, ax3 = plt.subplots()
+               sns.histplot(df_comentarios['Probabilidad'].apply(lambda x: float(x.replace('%', ''))), bins=10, kde=True, ax=ax3)
+               ax3.set_xlabel('Probabilidad de certeza (%)')
+               ax3.set_ylabel('Cantidad de comentarios')
+               ax3.set_title('Distribución de Probabilidades de Clasificación')
+               st.pyplot(fig3)
 
-                fig_pie.update_traces(textinfo='percent+label', texttemplate='%{percent:.1%} (%{value})')
-                st.plotly_chart(fig_pie)
+            # 📝 Gráfico de Palabras Clave por Sentimiento  
+            with st.expander("📝 Palabras Más Comunes por Sentimiento"): 
+               from collections import Counter
+               for sentimiento in ['positivo', 'neutral', 'negativo']:
+                   comentarios_sentimiento = df_comentarios[df_comentarios['Sentimiento'] == sentimiento]['Comentario']
+                   palabras = " ".join(comentarios_sentimiento).lower().split()
+                   palabras_filtradas = [p for p in palabras if len(p) > 3]
+                   conteo = Counter(palabras_filtradas).most_common(10)
 
-                # Gráfico de barras de palabras más frecuentes (MODIFICADO)
-                st.subheader("Palabras Más Frecuentes")
-                if all_lemas_corpus:
-                    word_counts = Counter(all_lemas_corpus)
-                    most_common_words = pd.DataFrame(word_counts.most_common(20), columns=['Palabra', 'Frecuencia'])
+                   if conteo:
+                       palabras, frecuencias = zip(*conteo)
+                       fig4, ax4 = plt.subplots()
+                       ax4.barh(palabras, frecuencias, color=('green' if sentimiento=='positivo' else 'gray' if sentimiento=='neutral' else 'red'))
+                       ax4.set_title(f"Top Palabras en comentarios {sentimiento}")
+                       ax4.invert_yaxis()
+                       st.pyplot(fig4)
+                   else:
+                       
+                       st.info(f"No hay suficientes palabras para mostrar en '{sentimiento}'.") 
 
-                    fig_bar = px.bar(most_common_words,
-                                     x='Frecuencia',
-                                     y='Palabra',
-                                     orientation='h',
-                                     title='Top 20 Palabras Más Frecuentes',
-                                     labels={'Frecuencia': 'Frecuencia', 'Palabra': 'Palabra'},
-                                     height=600)  # Aumentar la altura del gráfico
+            # 🚀 Velocímetro de Comentarios Positivos    
+               with st.expander("🚀 Velocímetro de Sentimiento Positivo"):
+                        import plotly.graph_objects as go
+                        total = len(df_comentarios)
+                        positivos = len(df_comentarios[df_comentarios['Sentimiento'] == 'positivo'])
+                        porcentaje_positivo = (positivos / total) * 100 if total > 0 else 0
 
-                    fig_bar.update_traces(texttemplate='%{x}', textposition='outside') # Mostrar la frecuencia al final de la barra
+                        fig5 = go.Figure(go.Indicator(
+                            mode="gauge+number",
+                            value=porcentaje_positivo,
+                            title={'text': "Comentarios Positivos (%)"},
+                            gauge={
+                                'axis': {'range': [0, 100]},
+                                'bar': {'color': "green"},
+                                'steps': [
+                                    {'range': [0, 50], 'color': "lightgray"},
+                                    {'range': [50, 100], 'color': "lightgreen"}
+                                ],
+                            }
+                        ))
 
-                    st.plotly_chart(fig_bar)
-                else:
-                    st.info("No hay suficientes palabras lematizadas para mostrar las más frecuentes.")
+                        st.plotly_chart(fig5)            
+                            
 
-            else:
-                st.info("El análisis de sentimiento aún no se ha realizado.")
-                
-    else:
-        st.warning(f"No se encontraron comentarios para la publicación con ID: {post_id}")
 
-elif not TokenAcceso:
-    st.error("Error: TokenAcceso no está configurada en tu archivo .env")
+
+        
+                     
+
+            
+            
+
+
+
+
+
+
+
+
+
+
+
+        
