@@ -161,6 +161,43 @@ def obtener_comentarios(post_id, access_token):
         st.empty()
         return []
 
+
+
+import streamlit as st
+import pandas as pd
+import numpy as np
+from wordcloud import WordCloud
+import matplotlib.pyplot as plt
+
+# Suponiendo que ya tienes estas funciones
+# obtener_comentarios(post_id, TokenAcceso)
+# y tu diccionario reemplazos
+
+from textblob import TextBlob
+
+def analizar_comentarios(comentarios):
+    resultados = []
+    for comentario in comentarios:
+        blob = TextBlob(comentario)
+        polaridad = blob.sentiment.polarity
+
+        if polaridad > 0.1:
+            sentimiento = 'positivo'
+        elif polaridad < -0.1:
+            sentimiento = 'negativo'
+        else:
+            sentimiento = 'neutral'
+
+        probabilidad = f"{int(abs(polaridad) * 100)}%"
+
+        resultados.append({
+            'sentimiento': sentimiento,
+            'probabilidad': probabilidad
+        })
+    
+    return resultados
+
+
 # Lógica principal para obtener y mostrar los comentarios y el análisis
 if post_id and TokenAcceso:
     all_comments = obtener_comentarios(post_id, TokenAcceso)
@@ -168,7 +205,7 @@ if post_id and TokenAcceso:
     if all_comments:
         df_comentarios = pd.DataFrame({'Comentario': all_comments})
 
-        # Aplicar reemplazo de caracteres especiales en la columna 'Comentario'
+        # Aplicar reemplazo de caracteres especiales
         for caracter_mal, caracter_bien in reemplazos.items():
             df_comentarios['Comentario'] = df_comentarios['Comentario'].str.replace(caracter_mal, caracter_bien, regex=False)
 
@@ -192,91 +229,128 @@ if post_id and TokenAcceso:
                 with st.spinner("Recargando comentarios..."):
                     all_comments = obtener_comentarios(post_id, TokenAcceso)
                     if all_comments:
-                        df_comentarios.Comentario = all_comments
+                        df_comentarios['Comentario'] = all_comments
+                        if 'analizado' in st.session_state:
+                            del st.session_state['analizado']  # 🔥 BORRAR análisis viejo
                         st.rerun()
-                    else:
-                        st.warning("No se pudieron recargar los comentarios.")
 
-            if analizar_sentimiento:
+            if analizar_sentimiento or st.session_state.get('analizado', False):
+                st.session_state['analizado'] = True  # Guardar que ya analizamos
+
                 with st.spinner("Procesando texto para análisis..."):
-                    df_comentarios['Comentario'] = df_comentarios['Comentario'].str.lower()
-                    df_comentarios['Comentario_preprocesado'] = df_comentarios['Comentario'].apply(preprocess_text)
+                    # --- Aquí realiza el análisis de sentimientos ---
+                    resultados = analizar_comentarios(df_comentarios['Comentario'].tolist())
+                    df_comentarios['Sentimiento'] = [r['sentimiento'] for r in resultados]
+                    df_comentarios['Probabilidad'] = [r['probabilidad'] for r in resultados]
 
-                    num_comentarios = len(df_comentarios)
-                    all_lemas_corpus = []
-                    lemas_por_comentario = []
-                    for i, row in df_comentarios.iterrows():
-                        processed_words = row['Comentario_preprocesado']
-                        lemas = lematizar_texto_es(processed_words)
-                        all_lemas_corpus.extend(lemas)
-                        lemas_por_comentario.append(lemas)
+                    # --- Nube de Palabras ---
+                    st.subheader("☁️ Nube de Palabras de Comentarios")
+                    texto_completo = " ".join(df_comentarios['Comentario'])
+                    nube = WordCloud(width=800, height=400, background_color='white').generate(texto_completo)
 
-                    df_comentarios['Comentario_lematizado'] = lemas_por_comentario
+                    fig1, ax1 = plt.subplots()
+                    ax1.imshow(nube, interpolation='bilinear')
+                    ax1.axis('off')
+                    st.pyplot(fig1)
 
-                    st.subheader("Resultados del Análisis de Sentimiento")
-                    sentimientos = []
-                    probabilidades = []
-                    for lemas in df_comentarios['Comentario_lematizado']:
-                        if lemas:
-                            texto_para_predecir = " ".join(lemas)
-                            vector_tfidf = tfidf.transform([texto_para_predecir])
-                            proba = modelo.predict_proba(vector_tfidf)[0]
-                            prob_negativa = proba[0]
-                            prob_positiva = proba[1]
+                    # --- Barra de Sentimientos apilada ---
+                    st.subheader("📊 Distribución de Sentimientos")
+                    conteo_sentimientos = df_comentarios['Sentimiento'].value_counts()
 
-                            if prob_positiva > prob_negativa:
-                                sentimiento = "positivo"
-                                probabilidad = f"{prob_positiva:.2%}"
-                            elif prob_positiva < prob_negativa:
-                                sentimiento = "negativo"
-                                probabilidad = f"{prob_negativa:.2%}"
-                            else:
-                                sentimiento = "neutral"
-                                probabilidad = "50.00%"
+                    fig2, ax2 = plt.subplots(figsize=(8, 2))
+                    sentimientos = ['positivo', 'neutral', 'negativo']
+                    cantidad = [conteo_sentimientos.get(sent, 0) for sent in sentimientos]
+
+                    ax2.barh(['Comentarios'], [cantidad[0]], color='green', label='Positivo')
+                    ax2.barh(['Comentarios'], [cantidad[1]], color='gray', left=cantidad[0], label='Neutral')
+                    ax2.barh(['Comentarios'], [cantidad[2]], color='red', left=cantidad[0]+cantidad[1], label='Negativo')
+
+                    ax2.set_xlim(0, sum(cantidad))
+                    ax2.set_xlabel('Cantidad de Comentarios')
+                    ax2.set_title('Distribución de Sentimientos')
+                    ax2.legend()
+                    st.pyplot(fig2)
+
+                    # --- Botón para mostrar filtros ---
+                    st.subheader("🎯 Aplicar Filtros a Comentarios Analizados")
+
+                    if 'mostrar_filtros' not in st.session_state:
+                        st.session_state.mostrar_filtros = False
+
+                    if st.button("🧹 Borrar Filtros"):
+                        # Resetear todos los filtros
+                        st.session_state.mostrar_filtros = False
+                        st.session_state.aplicar_sentimiento = False
+                        st.session_state.aplicar_palabra = False
+                        st.session_state.aplicar_probabilidad = False
+                        st.session_state.sentimiento_seleccionado = None
+                        st.session_state.palabra_clave = ""
+                        st.session_state.nivel_probabilidad = 50
+                        st.success("Filtros borrados.")
+                        st.rerun()
+
+                    if st.button("🧹 Filtros"):
+                        st.session_state.mostrar_filtros = not st.session_state.mostrar_filtros
+
+                    if st.session_state.mostrar_filtros:
+                        st.markdown("### Opciones de Filtro")
+
+                        aplicar_sentimiento = st.checkbox("Filtrar por tipo de sentimiento")
+                        if aplicar_sentimiento:
+                            sentimiento_seleccionado = st.selectbox(
+                                "Selecciona el sentimiento:",
+                                ("positivo", "negativo", "neutral")
+                            )
+
+                        aplicar_palabra = st.checkbox("Filtrar por palabra clave")
+                        if aplicar_palabra:
+                            palabra_clave = st.text_input("Escribe la palabra clave:")
+
+                        aplicar_probabilidad = st.checkbox("Filtrar por nivel de probabilidad (%)")
+                        if aplicar_probabilidad:
+                            nivel_probabilidad = st.slider(
+                                "Selecciona el porcentaje mínimo de certeza:",
+                                min_value=0,
+                                max_value=100,
+                                value=50,
+                                step=5
+                            )
+
+                        # Aplicar filtros
+                        if aplicar_sentimiento or aplicar_palabra or aplicar_probabilidad:
+                            df_filtrado = df_comentarios.copy()
+
+                            if aplicar_sentimiento:
+                                df_filtrado = df_filtrado[df_filtrado['Sentimiento'] == sentimiento_seleccionado]
+
+                            if aplicar_palabra and palabra_clave:
+                                df_filtrado = df_filtrado[df_filtrado['Comentario'].str.contains(palabra_clave, case=False, na=False)]
+
+                            if aplicar_probabilidad:
+                                # Ajuste para el filtro de probabilidad en un rango de 10%
+                                df_filtrado = df_filtrado[ 
+                                    df_filtrado['Probabilidad'].apply(
+                                        lambda x: float(x.replace('%', '')) >= nivel_probabilidad and 
+                                                  float(x.replace('%', '')) < (nivel_probabilidad + 10)
+                                    )
+                                ]
+
+                            st.success(f"🔎 Se encontraron {len(df_filtrado)} comentarios filtrados.")
+                            st.dataframe(df_filtrado[['Comentario', 'Sentimiento', 'Probabilidad']])
                         else:
-                            sentimiento = "neutral"
-                            probabilidad = "N/A"
-
-                        sentimientos.append(sentimiento)
-                        probabilidades.append(probabilidad)
-
-                    df_comentarios['Sentimiento'] = sentimientos
-                    df_comentarios['Probabilidad'] = probabilidades
-
-                    st.dataframe(df_comentarios[['Comentario', 'Sentimiento', 'Probabilidad']])
-
-                    # Gráfico de porcentaje de sentimientos
-
-                    st.subheader("Distribución de Sentimientos")
-
-                    conteo_sentimientos = Counter(df_comentarios['Sentimiento'])
-                    total = sum(conteo_sentimientos.values())
-                    porcentajes = {k: (v / total) * 100 for k, v in conteo_sentimientos.items()}
-
-                    colores_sent = {
-                            "positivo": "#03A678",
-                            "negativo": "#F27405",
-                            "neutral": "#A0A0A0"
-
-                    }
+                            st.info("Selecciona al menos un filtro para aplicar.")
 
 
-                    labels = list(porcentajes.keys())
-                    sizes = [porcentajes[k] for k in labels]
-                    colores = [colores_sent.get(k, "#888") for k in labels]
 
 
-                    fig, ax = plt.subplots(figsize=(8, 1.5))
-                    fig.patch.set_facecolor('#014040')
-                    left = 0
-                    for i in range(len(sizes)):
-                            ax.barh(0, sizes[i], left=left, color=colores[i])
-                            ax.text(left + sizes[i]/2, 0, f"{labels[i]}: {sizes[i]:.1f}%", va='center', ha='center', color='white', fontsize=10)
-                            left += sizes[i]
 
-                    ax.set_xlim(0, 100)  
-                    ax.axis('off')    
-                    st.pyplot(fig)  
+
+
+             
+
+                                 
+     
+                        
 
 
 
@@ -287,41 +361,6 @@ if post_id and TokenAcceso:
 
 
 
-
-
-
-
-
-
-
-
-
-                    # Nube de palabras
-                    st.subheader("Nube de Palabras de los Comentarios")
-
-                    from wordcloud import WordCloud
-                    import random
-
-                    custom_palette = ['#014040', '#02735E', '#03A678', '#F27405']
-
-                    def custom_color_func(word, font_size, position, orientation, random_state=None, **kwargs):
-                        return random.choice(custom_palette)
-
-                    if all_lemas_corpus:
-                        word_counts = Counter(all_lemas_corpus)
-                        wordcloud = WordCloud(
-                            width=800,
-                            height=400,
-                            background_color='white',
-                            color_func=custom_color_func
-                        ).generate_from_frequencies(word_counts)
-
-                        fig, ax = plt.subplots()
-                        ax.imshow(wordcloud, interpolation='bilinear')
-                        ax.axis("off")
-                        st.pyplot(fig)
-                    else:
-                        st.warning("No hay suficientes palabras para generar la nube de palabras.")
 
 
 
