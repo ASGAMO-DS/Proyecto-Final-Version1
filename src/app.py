@@ -16,10 +16,6 @@ from pickle import load
 from sklearn.feature_extraction.text import TfidfVectorizer
 from nltk.corpus import stopwords
 import nltk
-import numpy as np
-from itertools import combinations
-import seaborn as sns
-
 import plotly.express as px  # Importar plotly express
 
 
@@ -88,9 +84,6 @@ reemplazos = {
     r'í­': 'i',     # í
     r'ú': 'u',     # ú
 }
-
-
-
 
 def preprocess_text(text):
 
@@ -168,30 +161,6 @@ def obtener_comentarios(post_id, access_token):
         st.empty()
         return []
 
-
-
-# Funciones de procesamiento y predicción
-def obtener_comentarios(post_id, TokenAcceso):
-    # Función para obtener los comentarios de la publicación (simulada aquí)
-    pass
-
-def preprocess_text(text):
-    # Preprocesamiento del texto: eliminación de caracteres no deseados, etc.
-    pass
-
-def lematizar_texto_es(text):
-    # Función de lematización (simulada aquí)
-    pass
-
-# Cargar el modelo y el TF-IDF previamente entrenado
-modelo = None  # Aquí debería cargar el modelo de clasificación de sentimientos
-tfidf = TfidfVectorizer()  # Debe estar entrenado en los datos de texto relevantes
-
-# Diccionario de reemplazos de caracteres
-reemplazos = {
-    "caracter_mal": "caracter_bien",  # Ejemplo de reemplazo
-}
-
 # Lógica principal para obtener y mostrar los comentarios y el análisis
 if post_id and TokenAcceso:
     all_comments = obtener_comentarios(post_id, TokenAcceso)
@@ -212,7 +181,7 @@ if post_id and TokenAcceso:
 
         with tab2:
             st.subheader("Análisis de Sentimiento y Nube de Palabras")
-            col1, col2 = st.columns([2, 1])  # Dividir el espacio en dos columnas para los botones
+            col1, col2 = st.columns([2, 1])
 
             with col1:
                 analizar_sentimiento = st.button("✨ Realizar análisis de sentimiento y ver nube de palabras ✨")
@@ -223,21 +192,16 @@ if post_id and TokenAcceso:
                 with st.spinner("Recargando comentarios..."):
                     all_comments = obtener_comentarios(post_id, TokenAcceso)
                     if all_comments:
-                        df_comentarios.Comentario = all_comments  # Actualizar el DataFrame existente
-                        st.rerun()  # Volver a ejecutar el script para reflejar los nuevos comentarios
+                        df_comentarios.Comentario = all_comments
+                        st.rerun()
                     else:
                         st.warning("No se pudieron recargar los comentarios.")
 
             if analizar_sentimiento:
                 with st.spinner("Procesando texto para análisis..."):
-
-                    # Convertir la columna de comentarios a minúsculas
                     df_comentarios['Comentario'] = df_comentarios['Comentario'].str.lower()
-
-                    # Aplicar la función de preprocesamiento a cada comentario
                     df_comentarios['Comentario_preprocesado'] = df_comentarios['Comentario'].apply(preprocess_text)
 
-                    # Lematización
                     num_comentarios = len(df_comentarios)
                     all_lemas_corpus = []
                     lemas_por_comentario = []
@@ -249,7 +213,6 @@ if post_id and TokenAcceso:
 
                     df_comentarios['Comentario_lematizado'] = lemas_por_comentario
 
-                    # Predicción de sentimiento
                     st.subheader("Resultados del Análisis de Sentimiento")
                     sentimientos = []
                     probabilidades = []
@@ -264,75 +227,108 @@ if post_id and TokenAcceso:
                             if prob_positiva > prob_negativa:
                                 sentimiento = "positivo"
                                 probabilidad = f"{prob_positiva:.2%}"
-                            else:
+                            elif prob_positiva < prob_negativa:
                                 sentimiento = "negativo"
                                 probabilidad = f"{prob_negativa:.2%}"
-
-                            sentimientos.append(sentimiento)
-                            probabilidades.append(probabilidad)
+                            else:
+                                sentimiento = "neutral"
+                                probabilidad = "50.00%"
                         else:
-                            sentimientos.append("neutral")
-                            probabilidades.append("N/A")
+                            sentimiento = "neutral"
+                            probabilidad = "N/A"
+
+                        sentimientos.append(sentimiento)
+                        probabilidades.append(probabilidad)
 
                     df_comentarios['Sentimiento'] = sentimientos
                     df_comentarios['Probabilidad'] = probabilidades
 
                     st.dataframe(df_comentarios[['Comentario', 'Sentimiento', 'Probabilidad']])
 
-                    # Agregar selección para tipo de visualización de palabras
-                    opcion = st.radio("¿Cómo te gustaría visualizar la frecuencia de palabras?", 
-                                      ("Nube de Palabras", "Gráfico de Barras", "Mapa de Calor"))
+                    # Gráfico de porcentaje de sentimientos
 
-                    # Visualización 1: Nube de Palabras
-                    if opcion == "Nube de Palabras":
+                    st.subheader("Distribución de Sentimientos")
+
+                    conteo_sentimientos = Counter(df_comentarios['Sentimiento'])
+                    total = sum(conteo_sentimientos.values())
+                    porcentajes = {k: (v / total) * 100 for k, v in conteo_sentimientos.items()}
+
+                    colores_sent = {
+                            "positivo": "#03A678",
+                            "negativo": "#F27405",
+                            "neutral": "#A0A0A0"
+
+                    }
+
+
+                    labels = list(porcentajes.keys())
+                    sizes = [porcentajes[k] for k in labels]
+                    colores = [colores_sent.get(k, "#888") for k in labels]
+
+
+                    fig, ax = plt.subplots(figsize=(8, 1.5))
+                    fig.patch.set_facecolor('#014040')
+                    left = 0
+                    for i in range(len(sizes)):
+                            ax.barh(0, sizes[i], left=left, color=colores[i])
+                            ax.text(left + sizes[i]/2, 0, f"{labels[i]}: {sizes[i]:.1f}%", va='center', ha='center', color='white', fontsize=10)
+                            left += sizes[i]
+
+                    ax.set_xlim(0, 100)  
+                    ax.axis('off')    
+                    st.pyplot(fig)  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                    # Nube de palabras
+                    st.subheader("Nube de Palabras de los Comentarios")
+
+                    from wordcloud import WordCloud
+                    import random
+
+                    custom_palette = ['#014040', '#02735E', '#03A678', '#F27405']
+
+                    def custom_color_func(word, font_size, position, orientation, random_state=None, **kwargs):
+                        return random.choice(custom_palette)
+
+                    if all_lemas_corpus:
                         word_counts = Counter(all_lemas_corpus)
-                        if word_counts:
-                            wordcloud = WordCloud(width=800, height=400, background_color='white').generate_from_frequencies(word_counts)
-                            fig_wordcloud, ax = plt.subplots()
-                            ax.imshow(wordcloud, interpolation='bilinear')
-                            ax.axis("off")
-                            st.pyplot(fig_wordcloud)
-                        else:
-                            st.warning("No hay suficientes palabras para generar la nube.")
+                        wordcloud = WordCloud(
+                            width=800,
+                            height=400,
+                            background_color='white',
+                            color_func=custom_color_func
+                        ).generate_from_frequencies(word_counts)
 
-                    # Visualización 2: Gráfico de Barras de las Palabras Más Frecuentes
-                    elif opcion == "Gráfico de Barras":
-                        st.subheader("📊 Palabras Más Frecuentes")
-                        if all_lemas_corpus:
-                            word_counts = Counter(all_lemas_corpus)
-                            top_words = word_counts.most_common(20)
-                            palabras, frecuencias = zip(*top_words)
+                        fig, ax = plt.subplots()
+                        ax.imshow(wordcloud, interpolation='bilinear')
+                        ax.axis("off")
+                        st.pyplot(fig)
+                    else:
+                        st.warning("No hay suficientes palabras para generar la nube de palabras.")
 
-                            fig_barras, ax = plt.subplots(figsize=(10, 5))
-                            ax.barh(palabras[::-1], frecuencias[::-1], color="skyblue")
-                            ax.set_xlabel("Frecuencia")
-                            ax.set_title("Top 20 Palabras Más Frecuentes")
-                            st.pyplot(fig_barras)
-                        else:
-                            st.info("No hay suficientes palabras lematizadas para mostrar las más frecuentes.")
 
-                    # Visualización 3: Mapa de Calor de Co-ocurrencias
-                    elif opcion == "Mapa de Calor":
-                        top_n = 20
-                        top_words = [palabra for palabra, _ in word_counts.most_common(top_n)]
-                        cooc_matrix = np.zeros((top_n, top_n))
-
-                        for comentario in df_comentarios['Comentario_lematizado']:
-                            palabras_comentario = [p for p in comentario if p in top_words]
-                            for w1, w2 in combinations(palabras_comentario, 2):
-                                i, j = top_words.index(w1), top_words.index(w2)
-                                cooc_matrix[i][j] += 1
-                                cooc_matrix[j][i] += 1
-
-                        fig_heatmap, ax = plt.subplots(figsize=(10, 8))
-                        sns.heatmap(cooc_matrix, xticklabels=top_words, yticklabels=top_words, cmap='YlGnBu', ax=ax)
-                        ax.set_title("Co-ocurrencia entre Palabras Más Frecuentes")
-                        st.pyplot(fig_heatmap)
 
         with tab3:
             st.subheader("Visualización de Métricas")
             if 'Sentimiento' in df_comentarios:
-                # Gráfico de pastel de sentimientos
+                # Gráfico de pastel de sentimientos (sin cambios)
                 sentiment_counts = df_comentarios['Sentimiento'].value_counts().reset_index()
                 sentiment_counts.columns = ['Sentimiento', 'Cantidad']
 
@@ -349,7 +345,7 @@ if post_id and TokenAcceso:
                 fig_pie.update_traces(textinfo='percent+label', texttemplate='%{percent:.1%} (%{value})')
                 st.plotly_chart(fig_pie)
 
-                # Gráfico de barras de palabras más frecuentes
+                # Gráfico de barras de palabras más frecuentes (MODIFICADO)
                 st.subheader("Palabras Más Frecuentes")
                 if all_lemas_corpus:
                     word_counts = Counter(all_lemas_corpus)
@@ -361,14 +357,19 @@ if post_id and TokenAcceso:
                                      orientation='h',
                                      title='Top 20 Palabras Más Frecuentes',
                                      labels={'Frecuencia': 'Frecuencia', 'Palabra': 'Palabra'},
-                                     height=600)
+                                     height=600)  # Aumentar la altura del gráfico
 
-                    fig_bar.update_traces(texttemplate='%{x}', textposition='outside')  # Mostrar la frecuencia al final de la barra
+                    fig_bar.update_traces(texttemplate='%{x}', textposition='outside') # Mostrar la frecuencia al final de la barra
 
                     st.plotly_chart(fig_bar)
                 else:
                     st.info("No hay suficientes palabras lematizadas para mostrar las más frecuentes.")
+
             else:
                 st.info("El análisis de sentimiento aún no se ha realizado.")
+                
     else:
-        st.warning("No se han podido obtener comentarios para esta publicación.")
+        st.warning(f"No se encontraron comentarios para la publicación con ID: {post_id}")
+
+elif not TokenAcceso:
+    st.error("Error: TokenAcceso no está configurada en tu archivo .env")
