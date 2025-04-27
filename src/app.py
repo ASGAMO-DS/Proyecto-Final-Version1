@@ -163,33 +163,31 @@ def obtener_comentarios(post_id, access_token):
 
 
 
-import streamlit as st
-import pandas as pd
-import numpy as np
-from wordcloud import WordCloud
-import matplotlib.pyplot as plt
-
-# Suponiendo que ya tienes estas funciones
-# obtener_comentarios(post_id, TokenAcceso)
-# y tu diccionario reemplazos
 
 from textblob import TextBlob
 
 def analizar_comentarios(comentarios):
     resultados = []
+    
     for comentario in comentarios:
         blob = TextBlob(comentario)
         polaridad = blob.sentiment.polarity
-
-        if polaridad > 0.1:
+        
+        # Ajustar umbrales para sentimientos
+        if polaridad > 0.2:
             sentimiento = 'positivo'
-        elif polaridad < -0.1:
+        elif polaridad < -0.2:
             sentimiento = 'negativo'
         else:
             sentimiento = 'neutral'
-
+        
+        # Calcular la probabilidad de una manera más ajustada
         probabilidad = f"{int(abs(polaridad) * 100)}%"
-
+        
+        # Ajustar probabilidad para comentarios neutrales de forma más realista
+        if sentimiento == 'neutral' and abs(polaridad) < 0.05:
+            probabilidad = f"{int(abs(polaridad) * 100)}%"  # Para que no sea tan alto, puedes ajustar este valor
+            
         resultados.append({
             'sentimiento': sentimiento,
             'probabilidad': probabilidad
@@ -197,6 +195,10 @@ def analizar_comentarios(comentarios):
     
     return resultados
 
+
+
+# Definir la paleta de colores para los gráficos
+colores_paleta = ['#014040', '#02735E', '#03A678', '#F27405', '#731702']
 
 # Lógica principal para obtener y mostrar los comentarios y el análisis
 if post_id and TokenAcceso:
@@ -231,22 +233,22 @@ if post_id and TokenAcceso:
                     if all_comments:
                         df_comentarios['Comentario'] = all_comments
                         if 'analizado' in st.session_state:
-                            del st.session_state['analizado']  # 🔥 BORRAR análisis viejo
+                            del st.session_state['analizado']
                         st.rerun()
 
             if analizar_sentimiento or st.session_state.get('analizado', False):
-                st.session_state['analizado'] = True  # Guardar que ya analizamos
+                st.session_state['analizado'] = True
 
                 with st.spinner("Procesando texto para análisis..."):
-                    # --- Aquí realiza el análisis de sentimientos ---
                     resultados = analizar_comentarios(df_comentarios['Comentario'].tolist())
                     df_comentarios['Sentimiento'] = [r['sentimiento'] for r in resultados]
                     df_comentarios['Probabilidad'] = [r['probabilidad'] for r in resultados]
 
                     # --- Nube de Palabras ---
                     st.subheader("☁️ Nube de Palabras de Comentarios")
+                    st.write("🔎 La nube de palabras muestra las palabras más frecuentes que aparecen en los comentarios de la publicación.")
                     texto_completo = " ".join(df_comentarios['Comentario'])
-                    nube = WordCloud(width=800, height=400, background_color='white').generate(texto_completo)
+                    nube = WordCloud(width=800, height=400, background_color='white', colormap='winter').generate(texto_completo)
 
                     fig1, ax1 = plt.subplots()
                     ax1.imshow(nube, interpolation='bilinear')
@@ -255,15 +257,16 @@ if post_id and TokenAcceso:
 
                     # --- Barra de Sentimientos apilada ---
                     st.subheader("📊 Distribución de Sentimientos")
+                    st.write("📊 Este gráfico apilado muestra la cantidad de comentarios positivos, neutrales y negativos identificados en el análisis de sentimientos.")
                     conteo_sentimientos = df_comentarios['Sentimiento'].value_counts()
 
                     fig2, ax2 = plt.subplots(figsize=(8, 2))
                     sentimientos = ['positivo', 'neutral', 'negativo']
                     cantidad = [conteo_sentimientos.get(sent, 0) for sent in sentimientos]
 
-                    ax2.barh(['Comentarios'], [cantidad[0]], color='green', label='Positivo')
-                    ax2.barh(['Comentarios'], [cantidad[1]], color='gray', left=cantidad[0], label='Neutral')
-                    ax2.barh(['Comentarios'], [cantidad[2]], color='red', left=cantidad[0]+cantidad[1], label='Negativo')
+                    ax2.barh(['Comentarios'], [cantidad[0]], color=colores_paleta[1], label='Positivo')
+                    ax2.barh(['Comentarios'], [cantidad[1]], color=colores_paleta[2], left=cantidad[0], label='Neutral')
+                    ax2.barh(['Comentarios'], [cantidad[2]], color=colores_paleta[4], left=cantidad[0]+cantidad[1], label='Negativo')
 
                     ax2.set_xlim(0, sum(cantidad))
                     ax2.set_xlabel('Cantidad de Comentarios')
@@ -278,7 +281,6 @@ if post_id and TokenAcceso:
                         st.session_state.mostrar_filtros = False
 
                     if st.button("🧹 Borrar Filtros"):
-                        # Resetear todos los filtros
                         st.session_state.mostrar_filtros = False
                         st.session_state.aplicar_sentimiento = False
                         st.session_state.aplicar_palabra = False
@@ -327,11 +329,9 @@ if post_id and TokenAcceso:
                                 df_filtrado = df_filtrado[df_filtrado['Comentario'].str.contains(palabra_clave, case=False, na=False)]
 
                             if aplicar_probabilidad:
-                                # Ajuste para el filtro de probabilidad en un rango de 10%
-                                df_filtrado = df_filtrado[ 
+                                df_filtrado = df_filtrado[
                                     df_filtrado['Probabilidad'].apply(
-                                        lambda x: float(x.replace('%', '')) >= nivel_probabilidad and 
-                                                  float(x.replace('%', '')) < (nivel_probabilidad + 10)
+                                        lambda x: float(x.replace('%', '')) >= nivel_probabilidad
                                     )
                                 ]
 
@@ -340,80 +340,71 @@ if post_id and TokenAcceso:
                         else:
                             st.info("Selecciona al menos un filtro para aplicar.")
 
-
         with tab3:
             st.subheader("📊 Visualización de Métricas")
 
             # 📈 Histograma de Probabilidades
             with st.expander("📈 Histograma de Niveles de Probabilidad"):
-               import seaborn as sns
-               fig3, ax3 = plt.subplots()
-               sns.histplot(df_comentarios['Probabilidad'].apply(lambda x: float(x.replace('%', ''))), bins=10, kde=True, ax=ax3)
-               ax3.set_xlabel('Probabilidad de certeza (%)')
-               ax3.set_ylabel('Cantidad de comentarios')
-               ax3.set_title('Distribución de Probabilidades de Clasificación')
-               st.pyplot(fig3)
+                st.write("🔍 El histograma muestra cómo se distribuyen los niveles de certeza (%) de la clasificación de sentimientos entre los comentarios.")
+                import seaborn as sns
+                fig3, ax3 = plt.subplots()
+                sns.histplot(df_comentarios['Probabilidad'].apply(lambda x: float(x.replace('%', ''))), bins=10, kde=True, ax=ax3, color=colores_paleta[0])
+                ax3.set_xlabel('Probabilidad de certeza (%)')
+                ax3.set_ylabel('Cantidad de comentarios')
+                ax3.set_title('Distribución de Probabilidades de Clasificación')
+                st.pyplot(fig3)
 
             # 📝 Gráfico de Palabras Clave por Sentimiento  
             with st.expander("📝 Palabras Más Comunes por Sentimiento"): 
-               from collections import Counter
-               for sentimiento in ['positivo', 'neutral', 'negativo']:
-                   comentarios_sentimiento = df_comentarios[df_comentarios['Sentimiento'] == sentimiento]['Comentario']
-                   palabras = " ".join(comentarios_sentimiento).lower().split()
-                   palabras_filtradas = [p for p in palabras if len(p) > 3]
-                   conteo = Counter(palabras_filtradas).most_common(10)
+                st.write("📝 Este análisis muestra las palabras más comunes en los comentarios agrupados por tipo de sentimiento (positivo, neutral o negativo).")
+                from collections import Counter
+                for sentimiento in ['positivo', 'neutral', 'negativo']:
+                    comentarios_sentimiento = df_comentarios[df_comentarios['Sentimiento'] == sentimiento]['Comentario']
+                    palabras = " ".join(comentarios_sentimiento).lower().split()
+                    palabras_filtradas = [p for p in palabras if len(p) > 3]
+                    conteo = Counter(palabras_filtradas).most_common(10)
 
-                   if conteo:
-                       palabras, frecuencias = zip(*conteo)
-                       fig4, ax4 = plt.subplots()
-                       ax4.barh(palabras, frecuencias, color=('green' if sentimiento=='positivo' else 'gray' if sentimiento=='neutral' else 'red'))
-                       ax4.set_title(f"Top Palabras en comentarios {sentimiento}")
-                       ax4.invert_yaxis()
-                       st.pyplot(fig4)
-                   else:
-                       
-                       st.info(f"No hay suficientes palabras para mostrar en '{sentimiento}'.") 
+                    if conteo:
+                        palabras, frecuencias = zip(*conteo)
+                        fig4, ax4 = plt.subplots()
+                        ax4.barh(palabras, frecuencias, color=colores_paleta[1] if sentimiento == 'positivo' else (colores_paleta[2] if sentimiento == 'neutral' else colores_paleta[4]))
+                        ax4.set_title(f"Top Palabras en comentarios {sentimiento}")
+                        ax4.invert_yaxis()
+                        st.pyplot(fig4)
+                    else:
+                        st.info(f"No hay suficientes palabras para mostrar en '{sentimiento}'.")
 
             # 🚀 Velocímetro de Comentarios Positivos    
-               with st.expander("🚀 Velocímetro de Sentimiento Positivo"):
-                        import plotly.graph_objects as go
-                        total = len(df_comentarios)
-                        positivos = len(df_comentarios[df_comentarios['Sentimiento'] == 'positivo'])
-                        porcentaje_positivo = (positivos / total) * 100 if total > 0 else 0
+            with st.expander("🚀 Velocímetro de Sentimiento Positivo"):
+                st.write("🚀 El velocímetro indica el porcentaje de comentarios que fueron clasificados como positivos respecto al total de comentarios analizados.")
+                import plotly.graph_objects as go
+                total = len(df_comentarios)
+                positivos = len(df_comentarios[df_comentarios['Sentimiento'] == 'positivo'])
+                porcentaje_positivo = (positivos / total) * 100 if total > 0 else 0
 
-                        fig5 = go.Figure(go.Indicator(
-                            mode="gauge+number",
-                            value=porcentaje_positivo,
-                            title={'text': "Comentarios Positivos (%)"},
-                            gauge={
-                                'axis': {'range': [0, 100]},
-                                'bar': {'color': "green"},
-                                'steps': [
-                                    {'range': [0, 50], 'color': "lightgray"},
-                                    {'range': [50, 100], 'color': "lightgreen"}
-                                ],
-                            }
-                        ))
+                fig5 = go.Figure(go.Indicator(
+                    mode="gauge+number+delta",
+                    value=porcentaje_positivo,
+                    delta={'reference': 50, 'relative': True},
+                    title={'text': "Comentarios Positivos (%)"},
+                    gauge={
+                        'axis': {'range': [0, 100]},
+                        'bar': {'color': colores_paleta[1]},
+                        'steps': [
+                            {'range': [0, 50], 'color': colores_paleta[3]},
+                            {'range': [50, 100], 'color': colores_paleta[2]}
+                        ],
+                    }
+                ))
 
-                        st.plotly_chart(fig5)            
-                            
+                fig5.update_layout(
+                    annotations=[{
+                        'x': 0.5,
+                        'y': -0.25,
+                        'text': f'{round(porcentaje_positivo, 2)}%',
+                        'showarrow': False,
+                        'font': {'size': 20}
+                    }]
+                )
 
-
-
-        
-                     
-
-            
-            
-
-
-
-
-
-
-
-
-
-
-
-        
+                st.plotly_chart(fig5)
