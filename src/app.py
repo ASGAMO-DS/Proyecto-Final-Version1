@@ -16,6 +16,8 @@ from pickle import load
 from sklearn.feature_extraction.text import TfidfVectorizer
 from nltk.corpus import stopwords
 import nltk
+import seaborn as sns
+import numpy as np
 import plotly.express as px  # Importar plotly express
 
 
@@ -164,43 +166,12 @@ def obtener_comentarios(post_id, access_token):
 
 
 
-from textblob import TextBlob
-
-def analizar_comentarios(comentarios):
-    resultados = []
-    
-    for comentario in comentarios:
-        blob = TextBlob(comentario)
-        polaridad = blob.sentiment.polarity
-        
-        # Ajustar umbrales para sentimientos
-        if polaridad > 0.2:
-            sentimiento = 'positivo'
-        elif polaridad < -0.2:
-            sentimiento = 'negativo'
-        else:
-            sentimiento = 'neutral'
-        
-        # Calcular la probabilidad de una manera más ajustada
-        probabilidad = f"{int(abs(polaridad) * 100)}%"
-        
-        # Ajustar probabilidad para comentarios neutrales de forma más realista
-        if sentimiento == 'neutral' and abs(polaridad) < 0.05:
-            probabilidad = f"{int(abs(polaridad) * 100)}%"  # Para que no sea tan alto, puedes ajustar este valor
-            
-        resultados.append({
-            'sentimiento': sentimiento,
-            'probabilidad': probabilidad
-        })
-    
-    return resultados
-
-
 
 # Definir la paleta de colores para los gráficos
 colores_paleta = ['#014040', '#02735E', '#03A678', '#F27405', '#731702']
 
-# Lógica principal para obtener y mostrar los comentarios y el análisis
+
+#Lógica principal para obtener y mostrar los comentarios y el análisis
 if post_id and TokenAcceso:
     all_comments = obtener_comentarios(post_id, TokenAcceso)
 
@@ -213,60 +184,100 @@ if post_id and TokenAcceso:
 
         tab1, tab2, tab3 = st.tabs(["Comentarios", "Análisis de Sentimiento", "Visualización de Métricas"])
 
+        # Pestaña 1: Comentarios
         with tab1:
             st.subheader(f"Comentarios de la publicación con ID: {post_id}")
             st.dataframe(df_comentarios)
             st.write(f"Se han capturado **{len(all_comments)}** comentarios de la publicación.")
 
+        # Pestaña 2: Análisis de Sentimiento
         with tab2:
             st.subheader("Análisis de Sentimiento y Nube de Palabras")
+
+            # Inicializar variables de sesión
+            if 'mostrar_filtros' not in st.session_state:
+                st.session_state.mostrar_filtros = False
+            if 'analizado' not in st.session_state:
+                st.session_state.analizado = False
+
             col1, col2 = st.columns([2, 1])
 
             with col1:
-                analizar_sentimiento = st.button("✨ Realizar análisis de sentimiento y ver nube de palabras ✨")
+                if st.button("✨ Realizar análisis de sentimiento y ver nube de palabras ✨"):
+                    st.session_state.analizado = True
             with col2:
-                recargar_comentarios = st.button("🔄 Recargar comentarios")
+                if st.button("🔄 Recargar comentarios"):
+                    with st.spinner("Recargando comentarios..."):
+                        all_comments = obtener_comentarios(post_id, TokenAcceso)
+                        if all_comments:
+                            df_comentarios['Comentario'] = all_comments
+                            st.session_state.analizado = False
+                            st.experimental_rerun()
 
-            if recargar_comentarios:
-                with st.spinner("Recargando comentarios..."):
-                    all_comments = obtener_comentarios(post_id, TokenAcceso)
-                    if all_comments:
-                        df_comentarios['Comentario'] = all_comments
-                        if 'analizado' in st.session_state:
-                            del st.session_state['analizado']
-                        st.rerun()
-
-            if analizar_sentimiento or st.session_state.get('analizado', False):
-                st.session_state['analizado'] = True
-
+            if st.session_state.analizado:
                 with st.spinner("Procesando texto para análisis..."):
-                    resultados = analizar_comentarios(df_comentarios['Comentario'].tolist())
-                    df_comentarios['Sentimiento'] = [r['sentimiento'] for r in resultados]
-                    df_comentarios['Probabilidad'] = [r['probabilidad'] for r in resultados]
+                    # Preprocesamiento
+                    df_comentarios['Comentario'] = df_comentarios['Comentario'].str.lower()
+                    df_comentarios['Comentario_preprocesado'] = df_comentarios['Comentario'].apply(preprocess_text)
 
-                    # --- Nube de Palabras ---
-                    st.subheader("☁️ Nube de Palabras de Comentarios")
-                    st.write("🔎 La nube de palabras muestra las palabras más frecuentes que aparecen en los comentarios de la publicación.")
-                    texto_completo = " ".join(df_comentarios['Comentario'])
-                    nube = WordCloud(width=800, height=400, background_color='white', colormap='winter').generate(texto_completo)
+                    all_lemas_corpus = []
+                    lemas_por_comentario = []
+                    for comentario in df_comentarios['Comentario_preprocesado']:
+                        lemas = lematizar_texto_es(comentario)
+                        all_lemas_corpus.extend(lemas)
+                        lemas_por_comentario.append(lemas)
 
-                    fig1, ax1 = plt.subplots()
-                    ax1.imshow(nube, interpolation='bilinear')
-                    ax1.axis('off')
-                    st.pyplot(fig1)
+                    df_comentarios['Comentario_lematizado'] = lemas_por_comentario
 
-                    # --- Barra de Sentimientos apilada ---
+                    # Análisis de sentimiento
+                    sentimientos = []
+                    probabilidades = []
+                    for lemas in df_comentarios['Comentario_lematizado']:
+                        if lemas:
+                            texto = " ".join(lemas)
+                            vector_tfidf = tfidf.transform([texto])
+                            proba = modelo.predict_proba(vector_tfidf)[0]
+                            prob_negativa, prob_positiva = proba
+
+                            if prob_positiva > prob_negativa:
+                                sentimientos.append("positivo")
+                                probabilidades.append(f"{prob_positiva:.2%}")
+                            else:
+                                sentimientos.append("negativo")
+                                probabilidades.append(f"{prob_negativa:.2%}")
+                        else:
+                            sentimientos.append("neutral")
+                            probabilidades.append("N/A")
+
+                    df_comentarios['Sentimiento'] = sentimientos
+                    df_comentarios['Probabilidad'] = probabilidades
+
+                    # Mostrar resultados
+                    st.subheader("Resultados del Análisis de Sentimiento")
+                    st.dataframe(df_comentarios[['Comentario', 'Sentimiento', 'Probabilidad']])
+
+                    # Nube de palabras
+                    st.subheader("Nube de Palabras de los Comentarios")
+                    if all_lemas_corpus:
+                        wordcloud = WordCloud(width=800, height=400, background_color='white').generate_from_frequencies(Counter(all_lemas_corpus))
+                        fig, ax = plt.subplots()
+                        ax.imshow(wordcloud, interpolation='bilinear')
+                        ax.axis("off")
+                        st.pyplot(fig)
+                    else:
+                        st.warning("No hay suficientes palabras para generar la nube de palabras.")
+
+                    # Gráfico de barra horizontal de sentimientos
                     st.subheader("📊 Distribución de Sentimientos")
-                    st.write("📊 Este gráfico apilado muestra la cantidad de comentarios positivos, neutrales y negativos identificados en el análisis de sentimientos.")
                     conteo_sentimientos = df_comentarios['Sentimiento'].value_counts()
-
                     fig2, ax2 = plt.subplots(figsize=(8, 2))
-                    sentimientos = ['positivo', 'neutral', 'negativo']
-                    cantidad = [conteo_sentimientos.get(sent, 0) for sent in sentimientos]
+
+                    sentimientos_barra = ['positivo', 'neutral', 'negativo']
+                    cantidad = [conteo_sentimientos.get(s, 0) for s in sentimientos_barra]
 
                     ax2.barh(['Comentarios'], [cantidad[0]], color=colores_paleta[1], label='Positivo')
                     ax2.barh(['Comentarios'], [cantidad[1]], color=colores_paleta[2], left=cantidad[0], label='Neutral')
-                    ax2.barh(['Comentarios'], [cantidad[2]], color=colores_paleta[4], left=cantidad[0]+cantidad[1], label='Negativo')
+                    ax2.barh(['Comentarios'], [cantidad[2]], color=colores_paleta[4], left=cantidad[0] + cantidad[1], label='Negativo')
 
                     ax2.set_xlim(0, sum(cantidad))
                     ax2.set_xlabel('Cantidad de Comentarios')
@@ -274,85 +285,65 @@ if post_id and TokenAcceso:
                     ax2.legend()
                     st.pyplot(fig2)
 
-                    # --- Botón para mostrar filtros ---
+                    # Opciones de Filtro
                     st.subheader("🎯 Aplicar Filtros a Comentarios Analizados")
 
-                    if 'mostrar_filtros' not in st.session_state:
-                        st.session_state.mostrar_filtros = False
-
-                    if st.button("🧹 Borrar Filtros"):
-                        st.session_state.mostrar_filtros = False
-                        st.session_state.aplicar_sentimiento = False
-                        st.session_state.aplicar_palabra = False
-                        st.session_state.aplicar_probabilidad = False
-                        st.session_state.sentimiento_seleccionado = None
-                        st.session_state.palabra_clave = ""
-                        st.session_state.nivel_probabilidad = 50
-                        st.success("Filtros borrados.")
-                        st.rerun()
-
-                    if st.button("🧹 Filtros"):
-                        st.session_state.mostrar_filtros = not st.session_state.mostrar_filtros
+                    colf1, colf2 = st.columns(2)
+                    with colf1:
+                        if st.button("🎛️ Mostrar/Ocultar Filtros"):
+                            st.session_state.mostrar_filtros = not st.session_state.mostrar_filtros
+                    with colf2:
+                        if st.button("🧹 Borrar Filtros"):
+                            st.session_state.mostrar_filtros = False
+                            st.session_state.aplicar_sentimiento = False
+                            st.session_state.aplicar_palabra = False
+                            st.session_state.aplicar_probabilidad = False
+                            st.session_state.sentimiento_seleccionado = None
+                            st.session_state.palabra_clave = ""
+                            st.session_state.nivel_probabilidad = 50
+                            st.success("Filtros borrados correctamente.")
+                            st.experimental_rerun()
 
                     if st.session_state.mostrar_filtros:
                         st.markdown("### Opciones de Filtro")
 
-                        aplicar_sentimiento = st.checkbox("Filtrar por tipo de sentimiento")
+                        aplicar_sentimiento = st.checkbox("Filtrar por tipo de sentimiento", key="aplicar_sentimiento")
+                        aplicar_palabra = st.checkbox("Filtrar por palabra clave", key="aplicar_palabra")
+                        aplicar_probabilidad = st.checkbox("Filtrar por nivel de probabilidad (%)", key="aplicar_probabilidad")
+
                         if aplicar_sentimiento:
-                            sentimiento_seleccionado = st.selectbox(
-                                "Selecciona el sentimiento:",
-                                ("positivo", "negativo", "neutral")
-                            )
+                            st.session_state.sentimiento_seleccionado = st.selectbox("Selecciona el sentimiento:", ("positivo", "negativo", "neutral"))
 
-                        aplicar_palabra = st.checkbox("Filtrar por palabra clave")
                         if aplicar_palabra:
-                            palabra_clave = st.text_input("Escribe la palabra clave:")
+                            st.session_state.palabra_clave = st.text_input("Escribe la palabra clave:")
 
-                        aplicar_probabilidad = st.checkbox("Filtrar por nivel de probabilidad (%)")
                         if aplicar_probabilidad:
-                            nivel_probabilidad = st.slider(
-                                "Selecciona el porcentaje mínimo de certeza:",
-                                min_value=0,
-                                max_value=100,
-                                value=50,
-                                step=5
-                            )
+                            st.session_state.nivel_probabilidad = st.slider("Selecciona el porcentaje mínimo de certeza:", min_value=0, max_value=100, value=50, step=5)
 
                         # Aplicar filtros
-                        if aplicar_sentimiento or aplicar_palabra or aplicar_probabilidad:
-                            df_filtrado = df_comentarios.copy()
+                        df_filtrado = df_comentarios.copy()
 
-                            if aplicar_sentimiento:
-                                df_filtrado = df_filtrado[df_filtrado['Sentimiento'] == sentimiento_seleccionado]
+                        if aplicar_sentimiento and st.session_state.sentimiento_seleccionado:
+                            df_filtrado = df_filtrado[df_filtrado['Sentimiento'] == st.session_state.sentimiento_seleccionado]
 
-                            if aplicar_palabra and palabra_clave:
-                                df_filtrado = df_filtrado[df_filtrado['Comentario'].str.contains(palabra_clave, case=False, na=False)]
+                        if aplicar_palabra and st.session_state.palabra_clave:
+                            df_filtrado = df_filtrado[df_filtrado['Comentario'].str.contains(st.session_state.palabra_clave, case=False, na=False)]
 
-                            if aplicar_probabilidad:
-                                df_filtrado = df_filtrado[
-                                    df_filtrado['Probabilidad'].apply(
-                                        lambda x: float(x.replace('%', '')) >= nivel_probabilidad
-                                    )
-                                ]
+                        if aplicar_probabilidad:
+                            df_filtrado = df_filtrado[
+                                df_filtrado['Probabilidad'].apply(
+                                    lambda x: (x != "N/A") and float(x.replace('%', '')) >= st.session_state.nivel_probabilidad
+                               )
+                           ]
 
-                            st.success(f"🔎 Se encontraron {len(df_filtrado)} comentarios filtrados.")
-                            st.dataframe(df_filtrado[['Comentario', 'Sentimiento', 'Probabilidad']])
-                        else:
-                            st.info("Selecciona al menos un filtro para aplicar.")
+                        st.success(f"🔎 Se encontraron {len(df_filtrado)} comentarios filtrados.")
+                        st.dataframe(df_filtrado[['Comentario', 'Sentimiento', 'Probabilidad']])
 
+        # Pestaña 3: Visualización de Métricas
         with tab3:
             st.subheader("📊 Visualización de Métricas")
 
-            # 📈 Histograma de Probabilidades
-            with st.expander("📈 Histograma de Niveles de Probabilidad"):
-                st.write("🔍 El histograma muestra cómo se distribuyen los niveles de certeza (%) de la clasificación de sentimientos entre los comentarios.")
-                import seaborn as sns
-                fig3, ax3 = plt.subplots()
-                sns.histplot(df_comentarios['Probabilidad'].apply(lambda x: float(x.replace('%', ''))), bins=10, kde=True, ax=ax3, color=colores_paleta[0])
-                ax3.set_xlabel('Probabilidad de certeza (%)')
-                ax3.set_ylabel('Cantidad de comentarios')
-                ax3.set_title('Distribución de Probabilidades de Clasificación')
-                st.pyplot(fig3)
+            
 
             # 📝 Gráfico de Palabras Clave por Sentimiento  
             with st.expander("📝 Palabras Más Comunes por Sentimiento"): 
@@ -385,7 +376,6 @@ if post_id and TokenAcceso:
                 fig5 = go.Figure(go.Indicator(
                     mode="gauge+number+delta",
                     value=porcentaje_positivo,
-                    delta={'reference': 50, 'relative': True},
                     title={'text': "Comentarios Positivos (%)"},
                     gauge={
                         'axis': {'range': [0, 100]},
@@ -408,3 +398,4 @@ if post_id and TokenAcceso:
                 )
 
                 st.plotly_chart(fig5)
+            
