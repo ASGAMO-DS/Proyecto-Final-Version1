@@ -21,6 +21,24 @@ import numpy as np
 import plotly.express as px  # Importar plotly express
 
 
+import streamlit as st
+
+st.markdown("<h1 style='text-align: center; color: #00CCBF;'>🔍InsightPulse </h1>", unsafe_allow_html=True)
+
+# Introducción con fondo translúcido y texto en color #04BF9D
+st.markdown("""
+<div style='text-align: center; background-color: rgba(4, 191, 157, 0.1); padding: 20px 30px; border-radius: 15px; font-size: 18px; color: #04BF9D; font-weight: 600; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);'>
+    Descubre cómo percibe tu audiencia tus publicaciones. <br>
+</div>
+""", unsafe_allow_html=True)
+
+# Espacio entre la intro y el campo de ID
+st.markdown("<br><br>", unsafe_allow_html=True)
+
+
+
+
+
 # Cargar las variables de entorno AL INICIO del script
 load_dotenv()
 
@@ -115,6 +133,9 @@ def lematizar_texto_es(words):
         tokens = [token.lemma_ for token in doc if not token.is_stop and len(token.text) > 3]
         return tokens
     return []  # Si no es una lista, devolver lista vacía
+
+
+
 
 # Función para obtener los comentarios de Facebook
 def obtener_comentarios(post_id, access_token):
