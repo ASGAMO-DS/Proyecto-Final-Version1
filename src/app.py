@@ -1,4 +1,5 @@
-from flask import Flask, redirect, request, session, url_for
+from flask import Flask, redirect, request, session, url_for, render_template_string
+
 import requests
 import os
 
@@ -8,18 +9,19 @@ app.secret_key = '18f481ca7f13ffc5437a1697dc8a9eb3'
 # Configuración OAuth
 FB_CLIENT_ID = '1366085591316447'
 FB_CLIENT_SECRET = '18f481ca7f13ffc5437a1697dc8a9eb3'
-FB_REDIRECT_URI = 'http://localhost:5001/callback'  # Asegúrate que esté en FB Developers
+FB_REDIRECT_URI = 'https://bookish-guacamole-v6q4xqrg776v3wrjx-5000.github.dev/callback'  # Asegúrate que esté en FB Developers
 
 FB_AUTH_BASE = 'https://www.facebook.com/v18.0/dialog/oauth'
 FB_TOKEN_BASE = 'https://graph.facebook.com/v18.0/oauth/access_token'
 
 @app.route('/')
 def index():
-    return '''
-        <h1>Bienvenido a Insight Pulse</h1>
-        <p>Aquí conectaremos con Facebook OAuth2.0</p>
-        <a href="/login" style="font-size:20px;color:blue;">👉 Login con Facebook</a>
+    html = '''
+    <h1>Bienvenido a Insight Pulse</h1>
+    <p>Aquí conectaremos con Facebook OAuth2.0</p>
+    <a href="/login" style="font-size:20px;color:blue;">👉 Login con Facebook</a>
     '''
+    return render_template_string(html)
 
 
 @app.route('/login')
@@ -62,7 +64,8 @@ def metrics():
     return '¡Aquí irán tus métricas!'
 
 if __name__ == '__main__':
-    app.run(debug=True, port=5001)
+    app.run(debug=True, host='0.0.0.0', port=5000)
+
 
 
 
